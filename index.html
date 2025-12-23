@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mandelbrot (Canvas + Vanilla JS)</title>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: rgba(16, 20, 26, 0.78);
+      --panelBorder: rgba(255, 255, 255, 0.12);
+      --text: rgba(255, 255, 255, 0.92);
+      --muted: rgba(255, 255, 255, 0.72);
+      --accent: #7dd3fc;
+      --danger: #f87171;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: crosshair;
+    }
+
+    .hud {
+      position: fixed;
+      left: 14px;
+      top: 14px;
+      width: min(420px, calc(100vw - 28px));
+      background: var(--panel);
+      border: 1px solid var(--panelBorder);
+      border-radius: 12px;
+      padding: 12px 12px 10px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      user-select: none;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 6px 0;
+    }
+
+    .row.tight { margin: 4px 0; }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .title h1 {
+      font-size: 14px;
+      margin: 0;
+      letter-spacing: 0.2px;
+      font-weight: 650;
+    }
+
+    .badge {
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--panelBorder);
+      color: var(--muted);
+    }
+
+    label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    select, button, input[type="number"] {
+      appearance: none;
+      -webkit-appearance: none;
+      border: 1px solid var(--panelBorder);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    select:focus, button:focus, input[type="number"]:focus {
+      box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.25);
+      border-color: rgba(125, 211, 252, 0.55);
+    }
+
+    button {
+      cursor: pointer;
+      transition: transform 0.04s ease, background 0.15s ease;
+    }
+    button:active { transform: translateY(1px); }
+    button.secondary { background: rgba(255,255,255,0.05); }
+    button.reset { border-color: rgba(248, 113, 113, 0.35); }
+    button.reset:hover { background: rgba(248, 113, 113, 0.10); }
+
+    .stats {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.25;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2px;
+      margin-top: 8px;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .hint {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.10);
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .hint kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 1px 6px;
+      border-radius: 6px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .footerNote {
+      margin-top: 6px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+    }
+
+    @media (max-width: 520px) {
+      .hud { left: 10px; top: 10px; }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+
+  <div class="hud" id="hud">
+    <div class="title">
+      <h1>Mandelbrot Set</h1>
+      <div class="badge" id="status">rendering…</div>
+    </div>
+
+    <div class="row">
+      <label for="palette">Palette</label>
+      <select id="palette">
+        <option value="turbo">Turbo</option>
+        <option value="inferno">Inferno</option>
+        <option value="ocean">Ocean</option>
+        <option value="grayscale">Grayscale</option>
+      </select>
+
+      <label for="maxIter">Max Iter</label>
+      <input id="maxIter" type="number" min="10" max="5000" step="10" value="200" style="width: 96px;" />
+
+      <button class="secondary" id="rerenderBtn" title="Re-render with current settings">Re-render</button>
+      <button class="reset" id="resetBtn" title="Reset view">Reset</button>
+    </div>
+
+    <div class="stats mono">
+      <div>Center: <span id="centerText">(-0.500000, 0.000000)</span></div>
+      <div>Zoom: <span id="zoomText">1.000×</span> &nbsp;|&nbsp; Scale: <span id="scaleText">3.500000</span> (Re width)</div>
+    </div>
+
+    <div class="hint">
+      <div><kbd>Click</kbd> to zoom in (2×) at mouse</div>
+      <div><kbd>Shift</kbd> + <kbd>Click</kbd> to zoom out (2×)</div>
+      <div>Click-drag to pan (grab the view)</div>
+      <div class="footerNote">Tip: change palette or iterations, then press “Re-render”.</div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      // ----------------------------
+      // Canvas setup (HiDPI aware)
+      // ----------------------------
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+
+      // ----------------------------
+      // UI elements
+      // ----------------------------
+      const paletteSelect = document.getElementById("palette");
+      const maxIterInput = document.getElementById("maxIter");
+      const rerenderBtn = document.getElementById("rerenderBtn");
+      const resetBtn = document.getElementById("resetBtn");
+
+      const centerText = document.getElementById("centerText");
+      const zoomText = document.getElementById("zoomText");
+      const scaleText = document.getElementById("scaleText");
+      const statusBadge = document.getElementById("status");
+
+      // ----------------------------
+      // Mandelbrot view state
+      // ----------------------------
+      const DEFAULT = {
+        // Default view requested
+        centerRe: -0.5,
+        centerIm: 0.0,
+        // Show real axis from about -2.5 to 1.0 => width ~ 3.5
+        reWidth: 3.5,
+      };
+
+      // Current view
+      let centerRe = DEFAULT.centerRe;
+      let centerIm = DEFAULT.centerIm;
+      let reWidth = DEFAULT.reWidth; // width of the visible real axis
+
+      // Coloring / iterations
+      let maxIterations = 200; // easy to change
+      const escapeRadius = 2.0;
+      const escapeRadius2 = escapeRadius * escapeRadius;
+
+      // ----------------------------
+      // Progressive rendering state
+      // ----------------------------
+      let imageData = null;
+      let pixelBuffer = null;
+
+      let renderJobId = 0;     // increments to cancel in-flight renders
+      let renderY = 0;         // current scanline progress
+      let dpr = 1;
+
+      // Tiles/rows per frame budget:
+      const ROWS_PER_CHUNK = 8; // work granularity; keep UI responsive
+      const TIME_BUDGET_MS = 10; // approximate CPU time per frame for rendering
+
+      // ----------------------------
+      // Interaction state (panning)
+      // ----------------------------
+      let isDragging = false;
+      let dragStartX = 0;
+      let dragStartY = 0;
+      let dragStartCenterRe = 0;
+      let dragStartCenterIm = 0;
+
+      // Cursor feedback
+      const setCursor = (value) => (canvas.style.cursor = value);
+
+      // ----------------------------
+      // Utility helpers
+      // ----------------------------
+      function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+      function lerp(a, b, t) { return a + (b - a) * t; }
+
+      // Map pixel (x,y) -> complex plane (re, im) for current view.
+      function pixelToComplex(x, y) {
+        const w = canvas.width;
+        const h = canvas.height;
+        const aspect = h / w;
+
+        const reMin = centerRe - reWidth / 2;
+        const imHeight = reWidth * aspect;
+        const imMax = centerIm + imHeight / 2;
+
+        const re = reMin + (x / (w - 1)) * reWidth;
+        const im = imMax - (y / (h - 1)) * imHeight;
+        return { re, im };
+      }
+
+      // Keep a "zoom factor" display as relative to default.
+      function currentZoomFactor() {
+        return DEFAULT.reWidth / reWidth;
+      }
+
+      function updateHUD(rendering) {
+        centerText.textContent = `(${centerRe.toFixed(6)}, ${centerIm.toFixed(6)})`;
+        zoomText.textContent = `${currentZoomFactor().toFixed(3)}×`;
+        scaleText.textContent = reWidth.toFixed(6);
+        statusBadge.textContent = rendering ? "rendering…" : "done";
+      }
+
+      // ----------------------------
+      // Smooth coloring
+      // Continuous iteration count:
+      //   mu = n + 1 - log2(log(|z|))
+      // Where |z| is magnitude at escape.
+      // ----------------------------
+      function smoothIterationCount(iter, zr, zi) {
+        // iter is the integer iteration at which we escaped (or maxIterations)
+        // zr, zi are the z value at escape
+        const mag2 = zr * zr + zi * zi;
+        if (mag2 <= 0) return iter;
+
+        // log(|z|)
+        const log_zn = 0.5 * Math.log(mag2);
+        // log2(log(|z|))
+        const nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
+        // Continuous iteration count
+        return iter + 1 - nu;
+      }
+
+      // ----------------------------
+      // Palettes
+      // Return [r,g,b] in [0..255] for t in [0..1]
+      // ----------------------------
+      function paletteGrayscale(t) {
+        const v = Math.round(255 * clamp01(t));
+        return [v, v, v];
+      }
+
+      // A "Turbo-like" polynomial approximation (not exact Google Turbo,
+      // but produces a similar vivid gradient).
+      function paletteTurbo(t) {
+        t = clamp01(t);
+        // Polynomial coefficients inspired by common turbo approximations
+        const r = clamp01(0.13572138 + 4.61539260*t - 42.66032258*t*t + 132.13108234*t*t*t - 152.94239396*t*t*t*t + 59.28637943*t*t*t*t*t);
+        const g = clamp01(0.09140261 + 2.19418839*t + 4.84296658*t*t - 14.18503333*t*t*t + 4.27729857*t*t*t*t + 2.82956604*t*t*t*t*t);
+        const b = clamp01(0.10667330 + 12.64194608*t - 39.19787445*t*t + 29.82063498*t*t*t + 1.85706706*t*t*t*t - 5.52107857*t*t*t*t*t);
+        return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+      }
+
+      // Inferno-esque (hand-tuned gradient stops)
+      function paletteInferno(t) {
+        t = clamp01(t);
+        const stops = [
+          { t: 0.00, c: [0, 0, 4] },
+          { t: 0.15, c: [31, 12, 72] },
+          { t: 0.35, c: [85, 15, 109] },
+          { t: 0.55, c: [187, 55, 84] },
+          { t: 0.75, c: [249, 142, 8] },
+          { t: 1.00, c: [252, 255, 164] },
+        ];
+        return sampleStops(stops, t);
+      }
+
+      // Ocean palette (deep blue -> cyan -> sandy highlight)
+      function paletteOcean(t) {
+        t = clamp01(t);
+        const stops = [
+          { t: 0.00, c: [0, 8, 28] },
+          { t: 0.25, c: [0, 40, 92] },
+          { t: 0.55, c: [0, 170, 190] },
+          { t: 0.80, c: [170, 240, 220] },
+          { t: 1.00, c: [255, 245, 210] },
+        ];
+        return sampleStops(stops, t);
+      }
+
+      function sampleStops(stops, t) {
+        // Find the two stops surrounding t
+        for (let i = 0; i < stops.length - 1; i++) {
+          const a = stops[i], b = stops[i + 1];
+          if (t >= a.t && t <= b.t) {
+            const u = (t - a.t) / (b.t - a.t);
+            return [
+              Math.round(lerp(a.c[0], b.c[0], u)),
+              Math.round(lerp(a.c[1], b.c[1], u)),
+              Math.round(lerp(a.c[2], b.c[2], u)),
+            ];
+          }
+        }
+        return stops[stops.length - 1].c.slice();
+      }
+
+      function getPaletteFn(name) {
+        switch (name) {
+          case "turbo": return paletteTurbo;
+          case "inferno": return paletteInferno;
+          case "ocean": return paletteOcean;
+          case "grayscale": return paletteGrayscale;
+          default: return paletteTurbo;
+        }
+      }
+
+      // ----------------------------
+      // Mandelbrot iteration per pixel
+      // ----------------------------
+      function mandelbrotAt(cRe, cIm) {
+        // z0 = 0
+        let zr = 0.0;
+        let zi = 0.0;
+        let iter = 0;
+
+        // Iterate z_{n+1} = z_n^2 + c
+        // z^2 = (zr^2 - zi^2) + i(2*zr*zi)
+        for (; iter < maxIterations; iter++) {
+          const zr2 = zr * zr;
+          const zi2 = zi * zi;
+          if (zr2 + zi2 > escapeRadius2) break;
+
+          const twoZrZi = 2.0 * zr * zi;
+          zr = zr2 - zi2 + cRe;
+          zi = twoZrZi + cIm;
+        }
+
+        if (iter >= maxIterations) {
+          // Inside (or did not escape within maxIterations): paint black
+          return { inside: true, mu: maxIterations, zr, zi };
+        }
+
+        // Smooth coloring using continuous/normalized iteration count
+        const mu = smoothIterationCount(iter, zr, zi);
+        return { inside: false, mu, zr, zi };
+      }
+
+      // ----------------------------
+      // Rendering
+      // Progressive scanline rendering using requestAnimationFrame
+      // Writes pixels via ImageData
+      // ----------------------------
+      function startRender() {
+        renderJobId++;
+        const job = renderJobId;
+
+        // Read UI settings
+        maxIterations = Math.max(10, Math.min(5000, Number(maxIterInput.value) || 200));
+
+        // Allocate ImageData in device pixels
+        imageData = ctx.createImageData(canvas.width, canvas.height);
+        pixelBuffer = imageData.data;
+
+        renderY = 0;
+        updateHUD(true);
+
+        const paletteFn = getPaletteFn(paletteSelect.value);
+
+        // Precompute mapping factors for speed
+        const w = canvas.width;
+        const h = canvas.height;
+        const aspect = h / w;
+
+        const reMin = centerRe - reWidth / 2;
+        const imHeight = reWidth * aspect;
+        const imMax = centerIm + imHeight / 2;
+
+        const reScale = reWidth / (w - 1);
+        const imScale = imHeight / (h - 1);
+
+        function renderFrame() {
+          if (job !== renderJobId) return; // cancelled
+
+          const tStart = performance.now();
+          let rowsDone = 0;
+
+          // Work until time budget is used (or until we finish)
+          while (renderY < h && (performance.now() - tStart) < TIME_BUDGET_MS) {
+            // Render a small chunk of rows
+            const y0 = renderY;
+            const y1 = Math.min(h, y0 + ROWS_PER_CHUNK);
+
+            for (let y = y0; y < y1; y++) {
+              const cIm = imMax - y * imScale;
+              let idx = (y * w) * 4;
+
+              for (let x = 0; x < w; x++) {
+                const cRe = reMin + x * reScale;
+
+                const r = mandelbrotAt(cRe, cIm);
+                if (r.inside) {
+                  // Inside set: black
+                  pixelBuffer[idx++] = 0;
+                  pixelBuffer[idx++] = 0;
+                  pixelBuffer[idx++] = 0;
+                  pixelBuffer[idx++] = 255;
+                } else {
+                  // Normalize smooth iteration count
+                  // Map mu in [0..maxIterations] -> [0..1]
+                  let t = r.mu / maxIterations;
+
+                  // Optional gentle contrast curve:
+                  // emphasize features without harsh banding
+                  t = Math.pow(clamp01(t), 0.85);
+
+                  const [pr, pg, pb] = paletteFn(t);
+                  pixelBuffer[idx++] = pr;
+                  pixelBuffer[idx++] = pg;
+                  pixelBuffer[idx++] = pb;
+                  pixelBuffer[idx++] = 255;
+                }
+              }
+            }
+
+            renderY = y1;
+            rowsDone += (y1 - y0);
+          }
+
+          // Push current partial image to screen
+          ctx.putImageData(imageData, 0, 0);
+
+          if (renderY < h) {
+            requestAnimationFrame(renderFrame);
+          } else {
+            updateHUD(false);
+          }
+        }
+
+        requestAnimationFrame(renderFrame);
+      }
+
+      // ----------------------------
+      // Resize handling
+      // Keep the same view center & reWidth; just re-render at new resolution.
+      // ----------------------------
+      function resizeCanvas() {
+        dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+        const cssW = Math.floor(window.innerWidth);
+        const cssH = Math.floor(window.innerHeight);
+
+        canvas.style.width = cssW + "px";
+        canvas.style.height = cssH + "px";
+
+        const newW = Math.max(1, Math.floor(cssW * dpr));
+        const newH = Math.max(1, Math.floor(cssH * dpr));
+
+        // Only change if needed (prevents extra renders)
+        if (canvas.width !== newW || canvas.height !== newH) {
+          canvas.width = newW;
+          canvas.height = newH;
+          startRender();
+        }
+      }
+
+      // ----------------------------
+      // Zoom centered at mouse
+      // Zoom factor: 2
+      // Click: zoom in; Shift+Click: zoom out
+      // ----------------------------
+      function zoomAtMouse(clientX, clientY, zoomIn) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (clientX - rect.left) * dpr;
+        const y = (clientY - rect.top) * dpr;
+
+        const { re: targetRe, im: targetIm } = pixelToComplex(x, y);
+
+        // Update center to the mouse position, then adjust scale
+        centerRe = targetRe;
+        centerIm = targetIm;
+
+        const factor = zoomIn ? 0.5 : 2.0; // zoom in halves the width
+        reWidth *= factor;
+
+        startRender();
+      }
+
+      // ----------------------------
+      // Panning (click-drag)
+      // Move view by mouse delta in pixels -> delta in complex plane
+      // ----------------------------
+      function beginDrag(e) {
+        isDragging = true;
+        setCursor("grabbing");
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        dragStartCenterRe = centerRe;
+        dragStartCenterIm = centerIm;
+      }
+
+      function updateDrag(e) {
+        if (!isDragging) return;
+
+        const dxCss = e.clientX - dragStartX;
+        const dyCss = e.clientY - dragStartY;
+
+        // Convert CSS pixels to device pixels
+        const dx = dxCss * dpr;
+        const dy = dyCss * dpr;
+
+        const w = canvas.width;
+        const h = canvas.height;
+        const aspect = h / w;
+        const imHeight = reWidth * aspect;
+
+        // Pixels -> complex delta
+        const dRe = (dx / w) * reWidth;
+        const dIm = (dy / h) * imHeight;
+
+        // Dragging right should move the view right? (Grab-to-move feels opposite)
+        // For "grab" behavior, moving the mouse right drags the content right,
+        // which means the center moves left in complex coordinates.
+        centerRe = dragStartCenterRe - dRe;
+        centerIm = dragStartCenterIm + dIm;
+
+        updateHUD(true); // show updated center while dragging
+        // Re-render progressively (cancel previous render to keep up)
+        startRender();
+      }
+
+      function endDrag() {
+        if (!isDragging) return;
+        isDragging = false;
+        setCursor("crosshair");
+      }
+
+      // ----------------------------
+      // Reset view
+      // ----------------------------
+      function resetView() {
+        centerRe = DEFAULT.centerRe;
+        centerIm = DEFAULT.centerIm;
+        reWidth = DEFAULT.reWidth;
+        startRender();
+      }
+
+      // ----------------------------
+      // Event wiring
+      // ----------------------------
+      // Avoid accidental click-zoom after dragging:
+      // We'll treat a click as zoom only if the pointer didn't move much.
+      let pointerDown = false;
+      let downX = 0, downY = 0;
+      const CLICK_TOLERANCE_PX = 4;
+
+      canvas.addEventListener("pointerdown", (e) => {
+        canvas.setPointerCapture(e.pointerId);
+        pointerDown = true;
+        downX = e.clientX;
+        downY = e.clientY;
+
+        // Start drag (pan) on primary button
+        if (e.button === 0) beginDrag(e);
+      });
+
+      canvas.addEventListener("pointermove", (e) => {
+        if (!pointerDown) return;
+        updateDrag(e);
+      });
+
+      canvas.addEventListener("pointerup", (e) => {
+        canvas.releasePointerCapture(e.pointerId);
+        const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
+
+        endDrag();
+        pointerDown = false;
+
+        // If it was basically a click, zoom
+        if (moved <= CLICK_TOLERANCE_PX) {
+          const zoomIn = !e.shiftKey;
+          zoomAtMouse(e.clientX, e.clientY, zoomIn);
+        }
+      });
+
+      canvas.addEventListener("pointercancel", () => {
+        pointerDown = false;
+        endDrag();
+      });
+
+      // Keep "grab" cursor on hover (optional)
+      canvas.addEventListener("mouseenter", () => {
+        if (!isDragging) setCursor("crosshair");
+      });
+
+      // UI controls
+      rerenderBtn.addEventListener("click", () => startRender());
+      resetBtn.addEventListener("click", () => resetView());
+      paletteSelect.addEventListener("change", () => startRender());
+      maxIterInput.addEventListener("change", () => startRender());
+
+      // Resize
+      window.addEventListener("resize", () => resizeCanvas());
+
+      // ----------------------------
+      // Init
+      // ----------------------------
+      function init() {
+        // Ensure inputs reflect defaults
+        maxIterInput.value = String(maxIterations);
+        paletteSelect.value = "turbo";
+        resizeCanvas();
+        updateHUD(true);
+        startRender();
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>
